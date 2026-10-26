@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Adrian 排课表</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+HK:wght@400;500;700;900&display=swap">
+<style>
+:root{
+  --bg:#f6f5f1; --surface:#ffffff; --line:#e5e2d9; --grid-line:#edebe4;
+  --fg:#1d1b27; --muted:#6f6b7e; --accent:#4b39d4; --accent-ink:#ffffff;
+  --zj:#8a6ef0; --ys:#2a1fad; --yf:#e07a2d; --blk:#17151d; --chip-ink:#ffffff;
+  --today:#f0edff; --danger:#c23a3a; --ok:#1d7a4f;
+  --shadow:0 10px 30px rgba(24,18,60,.14);
+}
+/* Single-theme by design: always the white look, whatever the viewer's system setting. */
+:root{ color-scheme: light }
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font-family:"Noto Sans HK",-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  font-size:14px; line-height:1.5;
+}
+.wrap{
+  max-width:1120px; margin:0 auto;
+  padding-left:max(16px, env(safe-area-inset-left,0px));
+  padding-right:max(16px, env(safe-area-inset-right,0px));
+  padding-block:0 48px;
+}
+.topbar{
+  position:sticky; top:0; z-index:30;
+  background:var(--bg); border-bottom:1px solid var(--line);
+  display:flex; flex-wrap:wrap; align-items:center; gap:10px 16px;
+  padding-block:14px 12px;
+}
+.brand{display:flex; flex-direction:column; gap:1px; margin-right:auto}
+.brand h1{margin:0; font-size:19px; font-weight:900; letter-spacing:.2px}
+.brand .sub{font-size:11.5px; color:var(--muted); letter-spacing:.06em}
+.weeknav{display:flex; align-items:center; gap:6px}
+.weeknav .range{font-weight:700; font-variant-numeric:tabular-nums; min-width:170px; text-align:center}
+button{font:inherit; cursor:pointer}
+.btn{border:1px solid var(--line); background:var(--surface); color:var(--fg); border-radius:9px; padding:7px 12px; font-weight:500}
+.btn:hover{border-color:var(--accent)}
+.btn:focus-visible,.navbtn:focus-visible,.btn-primary:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.navbtn{width:34px; height:34px; border-radius:9px; border:1px solid var(--line); background:var(--surface); color:var(--fg); font-size:16px; line-height:1}
+.btn-primary{border:none; background:var(--accent); color:var(--accent-ink); border-radius:9px; padding:8px 16px; font-weight:700}
+.legendrow{display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; padding-block:12px 4px; font-size:12px; color:var(--muted)}
+.legend{display:inline-flex; align-items:center; gap:6px}
+.dot{width:11px; height:11px; border-radius:3.5px; display:inline-block}
+.banner{margin-top:12px; border:1px solid var(--line); border-left:4px solid var(--accent); background:var(--surface); border-radius:10px; padding:10px 14px; font-size:13px}
+.banner.warn{border-left-color:var(--danger)}
+.gridscroll{overflow-x:auto; margin-top:12px; border:1px solid var(--line); border-radius:14px; background:var(--surface)}
+.grid{min-width:780px; display:grid; grid-template-columns:52px repeat(6,1fr)}
+.corner,.dayhead{position:sticky; top:0; z-index:5}
+.dayhead{padding:10px 6px 8px; text-align:center; border-bottom:1px solid var(--line); background:var(--surface); border-left:1px solid var(--grid-line)}
+.dayhead .dname{font-weight:700}
+.dayhead .ddate{font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums}
+.dayhead.today{background:var(--today)}
+.dayhead.today .ddate{color:var(--accent); font-weight:700}
+.corner{background:var(--surface); border-bottom:1px solid var(--line)}
+.timecol{position:relative; border-right:1px solid var(--grid-line)}
+.timecol span{position:absolute; right:7px; transform:translateY(-50%); font-size:10.5px; color:var(--muted); font-variant-numeric:tabular-nums}
+.daycol{position:relative; border-left:1px solid var(--grid-line); cursor:copy}
+.daycol.today{background:var(--today)}
+.hline{position:absolute; left:0; right:0; height:1px; background:var(--grid-line); pointer-events:none}
+.nowline{position:absolute; left:0; right:0; height:2px; background:var(--danger); z-index:3; pointer-events:none}
+.nowline::before{content:""; position:absolute; left:-4px; top:-3px; width:8px; height:8px; border-radius:50%; background:var(--danger)}
+.lsn{
+  position:absolute; border-radius:9px; color:var(--chip-ink);
+  padding:5px 7px; overflow:hidden; cursor:pointer; z-index:2;
+  display:flex; flex-direction:column; gap:1px;
+  box-shadow:0 1px 0 rgba(0,0,0,.12); border:1.5px solid rgba(255,255,255,.22);
+}
+.lsn:hover{filter:brightness(1.08)}
+.lsn .nm{font-weight:700; font-size:12.5px; line-height:1.25; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.lsn .meta{font-size:10.5px; opacity:.92; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.lsn .tm{margin-top:auto; font-size:10px; opacity:.85; font-variant-numeric:tabular-nums}
+.lsn.c-zj{background:var(--zj)} .lsn.c-ys{background:var(--ys)} .lsn.c-yf{background:var(--yf)}
+.lsn.c-blk{background:var(--blk); border-style:dashed; border-color:rgba(255,255,255,.3)}
+.tag{position:absolute; top:4px; right:4px; font-size:9px; font-weight:900; background:rgba(255,255,255,.92); color:#241a7e; border-radius:5px; padding:1px 5px; letter-spacing:.05em}
+.lsn.c-blk .tag{background:rgba(255,255,255,.25); color:#fff}
+.loading-note{padding:10px 14px; font-size:12px; color:var(--muted)}
+.overlay{
+  position:fixed; inset:0; z-index:50; background:rgba(15,12,30,.45);
+  display:flex; align-items:flex-start; justify-content:center; overflow-y:auto;
+  padding:24px max(16px, env(safe-area-inset-left,0px)) 32px max(16px, env(safe-area-inset-right,0px));
+}
+.sheet{background:var(--surface); color:var(--fg); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow); width:min(440px,100%); padding:20px}
+.sheet h2{margin:0 0 4px; font-size:17px; font-weight:900}
+.sheet .hint{font-size:12px; color:var(--muted); margin:0 0 14px}
+.field{display:flex; flex-direction:column; gap:5px; margin-bottom:13px}
+.field > label{font-size:12px; font-weight:700; color:var(--muted)}
+.req::after{content:" *"; color:var(--danger)}
+input[type=text],input[type=date],select{font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:9px; padding:8px 10px; width:100%}
+input:focus,select:focus{outline:2px solid var(--accent); outline-offset:-1px}
+.timerow{display:flex; align-items:center; gap:8px}
+.timerow select{flex:1}
+.seg{display:flex; gap:6px; flex-wrap:wrap}
+.seg label{flex:1; min-width:84px; text-align:center; border:1.5px solid var(--line); border-radius:9px; padding:7px 4px; cursor:pointer; font-weight:500; user-select:none}
+.seg input{position:absolute; opacity:0; pointer-events:none}
+.seg input:checked + span{color:var(--accent); font-weight:900}
+.seg label:has(input:checked){border-color:var(--accent); background:var(--today)}
+.seg label:has(input:focus-visible){outline:2px solid var(--accent); outline-offset:2px}
+.fixedrow{display:flex; gap:10px; align-items:flex-start; border:1.5px dashed var(--accent); border-radius:10px; padding:10px 12px; background:var(--today); margin-bottom:13px}
+.fixedrow input{width:17px; height:17px; margin-top:2px; accent-color:var(--accent)}
+.fixedrow b{font-size:13px}
+.fixedrow p{margin:1px 0 0; font-size:11.5px; color:var(--muted)}
+.formerr{color:var(--danger); font-size:12.5px; margin:2px 0 10px; white-space:pre-line}
+.sheet .actions{display:flex; gap:10px; justify-content:flex-end; margin-top:6px}
+.kv{display:grid; grid-template-columns:76px 1fr; gap:6px 12px; font-size:13.5px; margin:12px 0 16px}
+.kv dt{color:var(--muted)} .kv dd{margin:0; font-weight:500}
+.pill{display:inline-block; font-size:11px; font-weight:900; border-radius:6px; padding:2px 8px; color:#fff; vertical-align:1px}
+.btn-danger{border:1px solid var(--danger); color:var(--danger); background:transparent; border-radius:9px; padding:7px 12px; font-weight:700}
+.btn-danger.confirm{background:var(--danger); color:#fff}
+.toast{position:fixed; z-index:60; left:50%; transform:translateX(-50%); bottom:22px; background:var(--fg); color:var(--bg); border-radius:99px; padding:9px 18px; font-size:13px; font-weight:700; box-shadow:var(--shadow); max-width:90vw; text-align:center}
+[hidden]{display:none !important}
+@media (max-width:560px){
+  .brand{flex-basis:100%}
+  .weeknav .range{min-width:0; font-size:13px}
+}
+@media (prefers-reduced-motion: no-preference){
+  .sheet{animation:pop .16s ease-out}
+  @keyframes pop{from{transform:translateY(8px); opacity:.6} to{transform:none; opacity:1}}
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="topbar">
+    <div class="brand">
+      <h1>Adrian 排课表</h1>
+      <div class="sub">学管排课系统 · 周一至周六 09:00–21:00 · 周日不开放</div>
+    </div>
+    <div class="weeknav">
+      <button class="navbtn" id="prevW" aria-label="上一周">‹</button>
+      <div class="range" id="weekRange">—</div>
+      <button class="navbtn" id="nextW" aria-label="下一周">›</button>
+      <button class="btn" id="thisW">本周</button>
+    </div>
+    <button class="btn-primary" id="addBtn">＋ 加课</button>
+  </header>
+
+  <div class="legendrow">
+    <span class="legend"><span class="dot" style="background:var(--zj)"></span>紫荆（中小学）</span>
+    <span class="legend"><span class="dot" style="background:var(--ys)"></span>跃升 / 灯塔（副学士/大学）</span>
+    <span class="legend"><span class="dot" style="background:var(--yf)"></span>扬帆（班课）</span>
+    <span class="legend"><span class="dot" style="background:var(--blk)"></span>Adrian 屏蔽时段</span>
+    <span class="legend" style="margin-left:auto">点击空白时段即可加课 · 带 <b style="color:var(--accent)">固排</b> 标签的课每周重复</span>
+  </div>
+
+  <div id="banner" class="banner warn" hidden></div>
+
+  <div class="gridscroll">
+    <div class="grid" id="grid"></div>
+    <div class="loading-note" id="loadNote">正在载入课表…</div>
+  </div>
+</div>
+
+<!-- add-lesson modal -->
+<div class="overlay" id="addOverlay" hidden>
+  <form class="sheet" id="addForm" novalidate>
+    <h2 id="addTitle">加课</h2>
+    <p class="hint">填好后课程会即时出现在所有学管的课表上。</p>
+
+    <div class="field">
+      <label class="req" for="f-manager">学管姓名</label>
+      <select id="f-manager" required></select>
+      <input type="text" id="f-manager-new" placeholder="输入新学管姓名" hidden>
+    </div>
+
+    <div class="field">
+      <label class="req" for="f-student">学生姓名</label>
+      <input type="text" id="f-student" placeholder="例：陈大文" autocomplete="off">
+    </div>
+
+    <div class="field">
+      <label class="req">项目</label>
+      <div class="seg" id="f-prog">
+        <label><input type="radio" name="prog" value="紫荆"><span>紫荆<br><small>中小学</small></span></label>
+        <label><input type="radio" name="prog" value="跃升"><span>跃升<br><small>大一/副学士一</small></span></label>
+        <label><input type="radio" name="prog" value="灯塔"><span>灯塔<br><small>大二或以上</small></span></label>
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="req" for="f-date">日期</label>
+      <input type="date" id="f-date">
+    </div>
+
+    <div class="field">
+      <label class="req" for="f-start">时间</label>
+      <div class="timerow">
+        <select id="f-start"></select>
+        <span>至</span>
+        <select id="f-end"></select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="f-subject">科目（选填）</label>
+      <input type="text" id="f-subject" placeholder="例：IELTS、IGCSE 英语" autocomplete="off">
+    </div>
+
+    <label class="fixedrow">
+      <input type="checkbox" id="f-fixed">
+      <span><b>固排吗？</b><p>勾选后，此时段从所选日期起<b>每周重复占用</b>，并带「固排」标签。</p></span>
+    </label>
+
+    <div class="formerr" id="formErr" hidden></div>
+
+    <div class="actions">
+      <button type="button" class="btn" id="cancelAdd">取消</button>
+      <button type="submit" class="btn-primary" id="submitAdd">确认加课</button>
+    </div>
+  </form>
+</div>
+
+<!-- detail modal -->
+<div class="overlay" id="detailOverlay" hidden>
+  <div class="sheet" role="dialog" aria-modal="true">
+    <h2 id="d-title">课程详情</h2>
+    <dl class="kv" id="d-body"></dl>
+    <div class="formerr" id="d-err" hidden></div>
+    <div class="actions">
+      <button type="button" class="btn" id="closeDetail">关闭</button>
+      <button type="button" class="btn-primary" id="editBtn">编辑</button>
+      <button type="button" class="btn-danger" id="delBtn">删除此课</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
+<script>
+"use strict";
+/* =========================================================
+   CONFIG — paste your own Supabase project values here.
+   Supabase dashboard → Project Settings → API:
+     · Project URL      → SUPABASE_URL
+     · anon public key  → SUPABASE_ANON_KEY
+   ========================================================= */
+const SUPABASE_URL      = "PASTE_YOUR_SUPABASE_URL_HERE";
+const SUPABASE_ANON_KEY = "PASTE_YOUR_SUPABASE_ANON_KEY_HERE";
+
+/* ================= constants ================= */
+const DAY_NAMES = ["周一","周二","周三","周四","周五","周六"];
+const START_MIN = 9*60, END_MIN = 21*60, STEP = 15;
+const PX_PER_MIN = 56/60;
+const DEFAULT_MANAGERS = ["曹洪恺","Daisy","Sylvia","尚子祺","林天琪","叶佳语","楚璇"];
+const NEW_SENTINEL = "__new__";
+
+/* ================= state ================= */
+let client = null;
+let lessons = [];
+let dbManagers = [];
+let weekStart = mondayOf(new Date());
+let pendingDelete = null, deleteArmed = false;
+let editingId = null, editingOriginal = null;   // when set, the form saves changes to this lesson
+
+/* ================= helpers ================= */
+function mondayOf(d){
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - (x.getDay()+6)%7);
+  return x;
+}
+function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+function iso(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function fromIso(s){ const [y,m,dd]=s.split("-").map(Number); return new Date(y,m-1,dd); }
+function fmtMin(m){ return String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0"); }
+function md(d){ return (d.getMonth()+1)+"月"+d.getDate()+"日"; }
+function colorClass(l){
+  if(l.blocked) return "c-blk";
+  if(l.programme==="紫荆") return "c-zj";
+  if(l.programme==="扬帆") return "c-yf";
+  return "c-ys";
+}
+function overlap(a1,a2,b1,b2){ return a1<b2 && b1<a2; }
+function weekdayIdx(dateStr){ return (fromIso(dateStr).getDay()+6)%7; }
+function esc(s){ return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function toast(msg){
+  const t=document.getElementById("toast");
+  t.textContent=msg; t.hidden=false;
+  clearTimeout(toast._h); toast._h=setTimeout(()=>{t.hidden=true;},2600);
+}
+function showBanner(html){
+  const b=document.getElementById("banner");
+  b.innerHTML=html; b.hidden=false;
+}
+
+/* ================= grid rendering ================= */
+const gridEl = document.getElementById("grid");
+
+function buildGridFrame(){
+  gridEl.innerHTML = "";
+  const corner=document.createElement("div");
+  corner.className="corner"; gridEl.appendChild(corner);
+  const todayIso = iso(new Date());
+  for(let d=0; d<6; d++){
+    const date=addDays(weekStart,d);
+    const h=document.createElement("div");
+    h.className="dayhead"+(iso(date)===todayIso?" today":"");
+    h.innerHTML=`<div class="dname">${DAY_NAMES[d]}</div><div class="ddate">${md(date)}</div>`;
+    gridEl.appendChild(h);
+  }
+  const colH=(END_MIN-START_MIN)*PX_PER_MIN;
+  const tc=document.createElement("div");
+  tc.className="timecol"; tc.style.height=colH+"px";
+  for(let m=START_MIN; m<=END_MIN; m+=60){
+    const s=document.createElement("span");
+    s.style.top=((m-START_MIN)*PX_PER_MIN)+"px"; s.textContent=fmtMin(m);
+    tc.appendChild(s);
+  }
+  gridEl.appendChild(tc);
+  for(let d=0; d<6; d++){
+    const date=addDays(weekStart,d);
+    const col=document.createElement("div");
+    col.className="daycol"+(iso(date)===todayIso?" today":"");
+    col.style.height=colH+"px"; col.dataset.day=d;
+    for(let m=START_MIN+60; m<END_MIN; m+=60){
+      const l=document.createElement("div");
+      l.className="hline"; l.style.top=((m-START_MIN)*PX_PER_MIN)+"px";
+      col.appendChild(l);
+    }
+    if(iso(date)===todayIso){
+      const now=new Date(); const nm=now.getHours()*60+now.getMinutes();
+      if(nm>START_MIN && nm<END_MIN){
+        const nl=document.createElement("div");
+        nl.className="nowline"; nl.style.top=((nm-START_MIN)*PX_PER_MIN)+"px";
+        col.appendChild(nl);
+      }
+    }
+    col.addEventListener("click", e=>{
+      if(e.target.closest(".lsn")) return;
+      const y=e.clientY - col.getBoundingClientRect().top;
+      let m=START_MIN + Math.round((y/PX_PER_MIN)/STEP)*STEP;
+      m=Math.max(START_MIN, Math.min(m, END_MIN-60));
+      openAdd(iso(addDays(weekStart,d)), m, Math.min(m+60, END_MIN));
+    });
+    gridEl.appendChild(col);
+  }
+  updateWeekLabel();
+}
+
+function lessonsForDay(d, dateStr){
+  return lessons.filter(l=>{
+    if(l.recurring) return l.day===d && (!l.startDate || dateStr>=l.startDate);
+    return l.date===dateStr;
+  });
+}
+
+function layoutLanes(items){
+  items.sort((a,b)=>a.start-b.start || a.end-b.end);
+  let lanes=[], cluster=[], clusterEnd=-1;
+  const flush=()=>{ const n=lanes.length; cluster.forEach(c=>c._cols=n); cluster=[]; lanes=[]; };
+  for(const it of items){
+    if(cluster.length && it.start>=clusterEnd) flush();
+    let li=lanes.findIndex(end=>end<=it.start);
+    if(li===-1){ li=lanes.length; lanes.push(0); }
+    lanes[li]=it.end; it._lane=li;
+    cluster.push(it); clusterEnd=Math.max(clusterEnd,it.end);
+  }
+  if(cluster.length) flush();
+  return items;
+}
+
+function renderLessons(){
+  gridEl.querySelectorAll(".lsn").forEach(n=>n.remove());
+  gridEl.querySelectorAll(".daycol").forEach(col=>{
+    const d=Number(col.dataset.day);
+    const dateStr=iso(addDays(weekStart,d));
+    const items=layoutLanes(lessonsForDay(d,dateStr).map(l=>({...l})));
+    for(const it of items){
+      const el=document.createElement("div");
+      el.className="lsn "+colorClass(it);
+      const top=(Math.max(it.start,START_MIN)-START_MIN)*PX_PER_MIN;
+      const h=(Math.min(it.end,END_MIN)-Math.max(it.start,START_MIN))*PX_PER_MIN;
+      const wPct=100/it._cols;
+      el.style.top=top+"px"; el.style.height=Math.max(h-2,16)+"px";
+      el.style.left=`calc(${it._lane*wPct}% + 2px)`;
+      el.style.width=`calc(${wPct}% - 4px)`;
+      if(it.blocked){
+        el.innerHTML=`<div class="nm">已屏蔽</div><div class="tm">${fmtMin(it.start)}–${fmtMin(it.end)}</div><span class="tag">固排</span>`;
+      }else{
+        el.innerHTML=
+          `<div class="nm">${esc(it.student)}</div>`+
+          `<div class="meta">${esc(it.subject||it.programme||"")}</div>`+
+          `<div class="tm">${fmtMin(it.start)}–${fmtMin(it.end)}</div>`+
+          (it.recurring?`<span class="tag">固排</span>`:"");
+      }
+      el.title=(it.blocked?"Adrian 屏蔽时段":it.student)+" "+fmtMin(it.start)+"–"+fmtMin(it.end);
+      el.addEventListener("click",()=>openDetail(it.id));
+      col.appendChild(el);
+    }
+  });
+}
+
+function updateWeekLabel(){
+  const a=weekStart, b=addDays(weekStart,5);
+  document.getElementById("weekRange").textContent=md(a)+" – "+md(b)+" · "+a.getFullYear();
+}
+function gotoWeek(delta){
+  weekStart = delta===0 ? mondayOf(new Date()) : addDays(weekStart, delta*7);
+  buildGridFrame(); renderLessons();
+}
+document.getElementById("prevW").addEventListener("click",()=>gotoWeek(-1));
+document.getElementById("nextW").addEventListener("click",()=>gotoWeek(+1));
+document.getElementById("thisW").addEventListener("click",()=>gotoWeek(0));
+
+/* ================= add form ================= */
+const addOverlay=document.getElementById("addOverlay");
+const managerSel=document.getElementById("f-manager");
+const managerNew=document.getElementById("f-manager-new");
+
+function allManagers(){
+  const set=new Set(DEFAULT_MANAGERS);
+  dbManagers.forEach(n=>set.add(n));
+  return [...set];
+}
+function fillManagerOptions(keep){
+  const cur = keep ?? managerSel.value;
+  managerSel.innerHTML="";
+  const ph=new Option("请选择学管…","");
+  ph.disabled=true; ph.selected=true; managerSel.add(ph);
+  allManagers().forEach(n=>managerSel.add(new Option(n,n)));
+  managerSel.add(new Option("＋ 我是新学管（输入姓名）",NEW_SENTINEL));
+  if(cur && cur!==NEW_SENTINEL){
+    if(![...managerSel.options].some(o=>o.value===cur)) managerSel.add(new Option(cur,cur));
+    managerSel.value=cur;
+  }
+}
+managerSel.addEventListener("change",()=>{
+  managerNew.hidden = managerSel.value!==NEW_SENTINEL;
+  if(!managerNew.hidden) managerNew.focus();
+});
+
+function fillTimeSelects(){
+  const s=document.getElementById("f-start"), e=document.getElementById("f-end");
+  s.innerHTML=""; e.innerHTML="";
+  for(let m=START_MIN; m<END_MIN; m+=STEP) s.add(new Option(fmtMin(m),m));
+  for(let m=START_MIN+STEP; m<=END_MIN; m+=STEP) e.add(new Option(fmtMin(m),m));
+}
+function openAdd(dateStr, start, end, lesson){
+  editingId = lesson ? lesson.id : null;
+  editingOriginal = lesson || null;
+  document.getElementById("addForm").reset();
+  fillManagerOptions(lesson ? (lesson.manager||"") : ""); managerNew.hidden=true;
+  document.getElementById("addTitle").textContent = lesson ? "编辑课程" : "加课";
+  document.getElementById("submitAdd").textContent = lesson ? "保存修改" : "确认加课";
+  if(lesson){
+    document.getElementById("f-student").value = lesson.student || "";
+    document.getElementById("f-subject").value = lesson.subject || "";
+    const r=document.querySelector('#f-prog input[value="'+lesson.programme+'"]');
+    if(r) r.checked=true;
+    document.getElementById("f-fixed").checked = !!lesson.recurring;
+    dateStr = lesson.recurring ? (lesson.startDate || dateStr || iso(new Date())) : lesson.date;
+    start = lesson.start; end = lesson.end;
+  }
+  document.getElementById("f-date").value = dateStr || iso(new Date());
+  document.getElementById("f-start").value = start ?? 16*60;
+  document.getElementById("f-end").value = end ?? 17*60;
+  document.getElementById("formErr").hidden=true;
+  addOverlay.hidden=false;
+  document.getElementById("f-student").focus();
+}
+document.getElementById("addBtn").addEventListener("click",()=>openAdd(iso(new Date()),16*60,17*60));
+document.getElementById("cancelAdd").addEventListener("click",()=>addOverlay.hidden=true);
+addOverlay.addEventListener("click",e=>{ if(e.target===addOverlay) addOverlay.hidden=true; });
+document.addEventListener("keydown",e=>{
+  if(e.key==="Escape"){ addOverlay.hidden=true; document.getElementById("detailOverlay").hidden=true; }
+});
+
+function findConflicts(cand){
+  const out=[];
+  for(const l of lessons){
+    if(editingId && l.id===editingId) continue;   // don't clash with the lesson being edited
+    if(!overlap(cand.start,cand.end,l.start,l.end)) continue;
+    let clash=false;
+    if(cand.recurring && l.recurring){
+      clash = l.day===cand.day;
+    }else if(cand.recurring && !l.recurring){
+      clash = weekdayIdx(l.date)===cand.day && l.date>=cand.startDate;
+    }else if(!cand.recurring && l.recurring){
+      clash = l.day===weekdayIdx(cand.date) && (!l.startDate || cand.date>=l.startDate);
+    }else{
+      clash = l.date===cand.date;
+    }
+    if(clash) out.push(l);
+  }
+  return out;
+}
+
+document.getElementById("addForm").addEventListener("submit", async e=>{
+  e.preventDefault();
+  const err=document.getElementById("formErr");
+  const fail=msg=>{ err.textContent=msg; err.hidden=false; };
+  err.hidden=true;
+
+  let manager = managerSel.value;
+  const isNewManager = manager===NEW_SENTINEL;
+  if(isNewManager) manager = managerNew.value.trim();
+  const student = document.getElementById("f-student").value.trim();
+  const prog = (document.querySelector('#f-prog input:checked')||{}).value;
+  const dateStr = document.getElementById("f-date").value;
+  const start = Number(document.getElementById("f-start").value);
+  const end = Number(document.getElementById("f-end").value);
+  const subject = document.getElementById("f-subject").value.trim();
+  const fixed = document.getElementById("f-fixed").checked;
+
+  let programme = prog;
+  if(!programme && editingOriginal) programme = editingOriginal.programme;  // keep e.g. 跃升/灯塔、扬帆 on edits
+  if(!manager) return fail("请选择或输入学管姓名。");
+  if(!student) return fail("请输入学生姓名。");
+  if(!programme) return fail("请选择项目（紫荆 / 跃升 / 灯塔）。");
+  if(!dateStr) return fail("请选择日期。");
+  if(fromIso(dateStr).getDay()===0) return fail("Adrian 周日不开放，请选择周一至周六。");
+  if(!(end>start)) return fail("结束时间需晚于开始时间。");
+  const wd = weekdayIdx(dateStr);
+
+  const cand={recurring:fixed, day:wd, date:dateStr, startDate:dateStr, start, end};
+  const clashes=findConflicts(cand);
+  if(clashes.length){
+    const lines=clashes.slice(0,3).map(c=>
+      "· "+(c.blocked?"Adrian 屏蔽时段":c.student)+"（"+(c.recurring?("每"+DAY_NAMES[c.day]):c.date)+" "+fmtMin(c.start)+"–"+fmtMin(c.end)+"）");
+    return fail("该时段已被占用，无法加课：\n"+lines.join("\n"));
+  }
+
+  if(!client) return fail("网站尚未连接数据库（Supabase 未配置）。");
+  const row={
+    student, manager, programme, subject,
+    start_min:start, end_min:end, recurring:fixed,
+    blocked: editingOriginal ? !!editingOriginal.blocked : false,
+    day:wd
+  };
+  if(fixed){ row.start_date=dateStr; row.date=null; } else { row.date=dateStr; row.start_date=null; }
+
+  const btn=document.getElementById("submitAdd");
+  btn.disabled=true;
+  try{
+    const r1 = editingId
+      ? await client.from("lessons").update(row).eq("id", editingId)
+      : await client.from("lessons").insert(row);
+    if(r1.error) throw r1.error;
+    if(isNewManager && !allManagers().includes(manager)){
+      await client.from("managers").insert({name:manager});
+    }
+    addOverlay.hidden=true;
+    toast(editingId ? "已保存修改" : (fixed ? "已加课（固排，每"+DAY_NAMES[wd]+" "+fmtMin(start)+"–"+fmtMin(end)+"）" : "已加课："+dateStr+" "+fmtMin(start)+"–"+fmtMin(end)));
+    editingId=null; editingOriginal=null;
+    await refetchAll();
+  }catch(ex){
+    fail("保存失败，请稍后再试。"+(ex&&ex.message?"（"+ex.message+"）":""));
+  }finally{ btn.disabled=false; }
+});
+
+/* ================= detail / delete ================= */
+const detailOverlay=document.getElementById("detailOverlay");
+function openDetail(id){
+  const l=lessons.find(x=>x.id===id); if(!l) return;
+  pendingDelete=l; deleteArmed=false;
+  const delBtn=document.getElementById("delBtn");
+  delBtn.textContent="删除此课"; delBtn.classList.remove("confirm");
+  document.getElementById("d-err").hidden=true;
+  document.getElementById("d-title").textContent = l.blocked ? "Adrian 屏蔽时段" : "课程详情";
+  const rows=[];
+  if(!l.blocked){
+    rows.push(["学生",esc(l.student)]);
+    rows.push(["学管",esc(l.manager||"—")]);
+    rows.push(["项目",`<span class="pill" style="background:var(--${l.programme==="紫荆"?"zj":l.programme==="扬帆"?"yf":"ys"})">${esc(l.programme)}</span>`]);
+    if(l.subject) rows.push(["科目",esc(l.subject)]);
+  }
+  rows.push(["时间", l.recurring
+      ? `每${DAY_NAMES[l.day]} ${fmtMin(l.start)}–${fmtMin(l.end)} <span class="pill" style="background:var(--accent);color:var(--accent-ink)">固排</span>`
+      : `${esc(l.date)}（${DAY_NAMES[l.day??weekdayIdx(l.date)]}） ${fmtMin(l.start)}–${fmtMin(l.end)}`]);
+  if(l.recurring && l.startDate) rows.push(["生效日", esc(l.startDate)+" 起"]);
+  document.getElementById("d-body").innerHTML=rows.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join("");
+  document.getElementById("editBtn").hidden = !!l.blocked;   // blocked slots: delete only
+  detailOverlay.hidden=false;
+}
+document.getElementById("editBtn").addEventListener("click",()=>{
+  if(!pendingDelete) return;
+  detailOverlay.hidden=true;
+  openAdd(null, null, null, pendingDelete);
+});
+document.getElementById("closeDetail").addEventListener("click",()=>detailOverlay.hidden=true);
+detailOverlay.addEventListener("click",e=>{ if(e.target===detailOverlay) detailOverlay.hidden=true; });
+
+document.getElementById("delBtn").addEventListener("click", async ()=>{
+  if(!pendingDelete || !client) return;
+  const btn=document.getElementById("delBtn");
+  if(!deleteArmed){
+    deleteArmed=true; btn.classList.add("confirm");
+    btn.textContent = pendingDelete.recurring ? "确认删除？将移除每周此固排" : "确认删除？";
+    return;
+  }
+  btn.disabled=true;
+  try{
+    const r=await client.from("lessons").delete().eq("id",pendingDelete.id);
+    if(r.error) throw r.error;
+    detailOverlay.hidden=true; toast("已删除");
+    await refetchAll();
+  }catch(ex){
+    const e2=document.getElementById("d-err");
+    e2.textContent="删除失败，请稍后再试。"; e2.hidden=false;
+  }finally{ btn.disabled=false; }
+});
+
+/* ================= data layer (Supabase) ================= */
+function mapRow(r){
+  return {
+    id:r.id, student:r.student, manager:r.manager, programme:r.programme,
+    subject:r.subject, day:r.day, date:r.date,
+    start:r.start_min, end:r.end_min,
+    recurring:r.recurring, blocked:r.blocked, startDate:r.start_date
+  };
+}
+async function refetchAll(){
+  if(!client) return;
+  const note=document.getElementById("loadNote");
+  const [a,b]=await Promise.all([
+    client.from("lessons").select("*"),
+    client.from("managers").select("name")
+  ]);
+  if(a.error){ note.hidden=false; note.textContent="课表载入出错："+a.error.message; return; }
+  lessons=(a.data||[]).map(mapRow);
+  if(!b.error) dbManagers=(b.data||[]).map(r=>r.name);
+  note.hidden = lessons.length>0;
+  if(lessons.length===0) note.textContent="暂无课程——点击任意空白时段即可加第一节课。";
+  renderLessons();
+  if(!addOverlay.hidden) fillManagerOptions();
+}
+
+/* ================= boot ================= */
+fillTimeSelects();
+buildGridFrame();
+
+if(SUPABASE_URL.startsWith("PASTE") || SUPABASE_ANON_KEY.startsWith("PASTE")){
+  document.getElementById("loadNote").hidden=true;
+  showBanner("⚠️ 网站尚未配置：请在 <b>index.html</b> 顶部的 CONFIG 区填入你的 Supabase URL 和 anon key（详见 README）。");
+}else{
+  client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  refetchAll();
+  // instant sync when another 学管 adds/deletes (needs Realtime on `lessons`; setup.sql enables it)
+  try{
+    client.channel("rt-lessons")
+      .on("postgres_changes",{event:"*",schema:"public",table:"lessons"},()=>refetchAll())
+      .subscribe();
+  }catch(_){}
+  // safety nets: refresh when tab regains focus, and every 60 s
+  document.addEventListener("visibilitychange",()=>{ if(!document.hidden) refetchAll(); });
+  setInterval(refetchAll, 60000);
+}
+</script>
+</body>
+</html>
