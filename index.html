@@ -9,7 +9,7 @@
 :root{
   --bg:#f6f5f1; --surface:#ffffff; --line:#e5e2d9; --grid-line:#edebe4;
   --fg:#1d1b27; --muted:#6f6b7e; --accent:#4b39d4; --accent-ink:#ffffff;
-  --zj:#8a6ef0; --ys:#2a1fad; --yf:#e07a2d; --blk:#17151d; --chip-ink:#ffffff;
+  --zj:#8a6ef0; --ys:#2a1fad; --yf:#e07a2d; --blk:#17151d; --vac:#718096; --chip-ink:#ffffff;
   --today:#f0edff; --danger:#c23a3a; --ok:#1d7a4f;
   --shadow:0 10px 30px rgba(24,18,60,.14);
 }
@@ -78,8 +78,9 @@ button{font:inherit; cursor:pointer}
 .lsn .tm{margin-top:auto; font-size:10px; opacity:.85; font-variant-numeric:tabular-nums}
 .lsn.c-zj{background:var(--zj)} .lsn.c-ys{background:var(--ys)} .lsn.c-yf{background:var(--yf)}
 .lsn.c-blk{background:var(--blk); border-style:dashed; border-color:rgba(255,255,255,.3)}
+.lsn.c-vac{background:var(--vac); border-style:dashed; border-color:rgba(255,255,255,.4)}
 .tag{position:absolute; top:4px; right:4px; font-size:9px; font-weight:900; background:rgba(255,255,255,.92); color:#241a7e; border-radius:5px; padding:1px 5px; letter-spacing:.05em}
-.lsn.c-blk .tag{background:rgba(255,255,255,.25); color:#fff}
+.lsn.c-blk .tag,.lsn.c-vac .tag{background:rgba(255,255,255,.25); color:#fff}
 .loading-note{padding:10px 14px; font-size:12px; color:var(--muted)}
 .overlay{
   position:fixed; inset:0; z-index:50; background:rgba(15,12,30,.45);
@@ -146,7 +147,8 @@ input:focus,select:focus{outline:2px solid var(--accent); outline-offset:-1px}
     <span class="legend"><span class="dot" style="background:var(--zj)"></span>紫荆（中小学）</span>
     <span class="legend"><span class="dot" style="background:var(--ys)"></span>跃升 / 灯塔（副学士/大学）</span>
     <span class="legend"><span class="dot" style="background:var(--yf)"></span>扬帆（班课）</span>
-    <span class="legend"><span class="dot" style="background:var(--blk)"></span>Adrian 屏蔽时段</span>
+    <span class="legend"><span class="dot" style="background:var(--blk)"></span>屏蔽时段</span>
+    <span class="legend"><span class="dot" style="background:var(--vac)"></span>休假</span>
     <span class="legend" style="margin-left:auto">点击空白时段即可加课 · 带 <b style="color:var(--accent)">固排</b> 标签的课每周重复</span>
   </div>
 
@@ -181,7 +183,10 @@ input:focus,select:focus{outline:2px solid var(--accent); outline-offset:-1px}
         <label><input type="radio" name="prog" value="紫荆"><span>紫荆<br><small>中小学</small></span></label>
         <label><input type="radio" name="prog" value="跃升"><span>跃升<br><small>大一/副学士一</small></span></label>
         <label><input type="radio" name="prog" value="灯塔"><span>灯塔<br><small>大二或以上</small></span></label>
+        <label><input type="radio" name="prog" value="屏蔽"><span>屏蔽时段<br><small>Adrian 不排课</small></span></label>
+        <label><input type="radio" name="prog" value="休假"><span>休假<br><small>放假</small></span></label>
       </div>
+      <p class="hint" style="margin:4px 0 0">选「屏蔽时段」或「休假」时，学管和学生姓名可不填。</p>
     </div>
 
     <div class="field">
@@ -242,7 +247,7 @@ input:focus,select:focus{outline:2px solid var(--accent); outline-offset:-1px}
      · Project URL      → SUPABASE_URL
      · anon public key  → SUPABASE_ANON_KEY
    ========================================================= */
-const SUPABASE_URL      = "https://rsludherwhwcolatcifx.supabase.co/rest/v1/";
+const SUPABASE_URL      = "https://rsludherwhwcolatcifx.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_VqPHyzDpo5kSFUs9vo1Quw_n6Cn6Cn6";
 
 /* ================= constants ================= */
@@ -272,11 +277,18 @@ function fromIso(s){ const [y,m,dd]=s.split("-").map(Number); return new Date(y,
 function fmtMin(m){ return String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0"); }
 function md(d){ return (d.getMonth()+1)+"月"+d.getDate()+"日"; }
 function colorClass(l){
-  if(l.blocked) return "c-blk";
+  if(l.programme==="休假") return "c-vac";
+  if(l.blocked || l.programme==="屏蔽") return "c-blk";
   if(l.programme==="紫荆") return "c-zj";
   if(l.programme==="扬帆") return "c-yf";
   return "c-ys";
 }
+function blockKind(l){                        // "" | "屏蔽" | "休假"
+  if(l.programme==="休假") return "休假";
+  if(l.blocked || l.programme==="屏蔽") return "屏蔽";
+  return "";
+}
+function blockLabel(l){ return blockKind(l)==="休假" ? "休假" : "Adrian 屏蔽时段"; }
 function overlap(a1,a2,b1,b2){ return a1<b2 && b1<a2; }
 function weekdayIdx(dateStr){ return (fromIso(dateStr).getDay()+6)%7; }
 function esc(s){ return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
@@ -381,8 +393,8 @@ function renderLessons(){
       el.style.top=top+"px"; el.style.height=Math.max(h-2,16)+"px";
       el.style.left=`calc(${it._lane*wPct}% + 2px)`;
       el.style.width=`calc(${wPct}% - 4px)`;
-      if(it.blocked){
-        el.innerHTML=`<div class="nm">已屏蔽</div><div class="tm">${fmtMin(it.start)}–${fmtMin(it.end)}</div><span class="tag">固排</span>`;
+      if(blockKind(it)){
+        el.innerHTML=`<div class="nm">${blockKind(it)==="休假"?"休假":"已屏蔽"}</div><div class="tm">${fmtMin(it.start)}–${fmtMin(it.end)}</div>`+(it.recurring?`<span class="tag">固排</span>`:"");
       }else{
         el.innerHTML=
           `<div class="nm">${esc(it.student)}</div>`+
@@ -390,7 +402,7 @@ function renderLessons(){
           `<div class="tm">${fmtMin(it.start)}–${fmtMin(it.end)}</div>`+
           (it.recurring?`<span class="tag">固排</span>`:"");
       }
-      el.title=(it.blocked?"Adrian 屏蔽时段":it.student)+" "+fmtMin(it.start)+"–"+fmtMin(it.end);
+      el.title=(blockKind(it)?blockLabel(it):it.student)+" "+fmtMin(it.start)+"–"+fmtMin(it.end);
       el.addEventListener("click",()=>openDetail(it.id));
       col.appendChild(el);
     }
@@ -452,7 +464,8 @@ function openAdd(dateStr, start, end, lesson){
   if(lesson){
     document.getElementById("f-student").value = lesson.student || "";
     document.getElementById("f-subject").value = lesson.subject || "";
-    const r=document.querySelector('#f-prog input[value="'+lesson.programme+'"]');
+    const progVal = lesson.programme || (lesson.blocked ? "屏蔽" : "");
+    const r=document.querySelector('#f-prog input[value="'+progVal+'"]');
     if(r) r.checked=true;
     document.getElementById("f-fixed").checked = !!lesson.recurring;
     dateStr = lesson.recurring ? (lesson.startDate || dateStr || iso(new Date())) : lesson.date;
@@ -510,10 +523,12 @@ document.getElementById("addForm").addEventListener("submit", async e=>{
   const fixed = document.getElementById("f-fixed").checked;
 
   let programme = prog;
-  if(!programme && editingOriginal) programme = editingOriginal.programme;  // keep e.g. 跃升/灯塔、扬帆 on edits
-  if(!manager) return fail("请选择或输入学管姓名。");
-  if(!student) return fail("请输入学生姓名。");
-  if(!programme) return fail("请选择项目（紫荆 / 跃升 / 灯塔）。");
+  if(!programme && editingOriginal) programme = editingOriginal.programme || (editingOriginal.blocked ? "屏蔽" : "");  // keep e.g. 跃升/灯塔、扬帆 on edits
+  const isBlockType = programme==="屏蔽" || programme==="休假";
+  if(!isBlockType && !manager) return fail("请选择或输入学管姓名。");
+  if(!isBlockType && !student) return fail("请输入学生姓名。");
+  if(!programme) return fail("请选择项目（紫荆 / 跃升 / 灯塔 / 屏蔽时段 / 休假）。");
+  if(!manager) manager = "Adrian";   // only possible for 屏蔽/休假
   if(!dateStr) return fail("请选择日期。");
   if(fromIso(dateStr).getDay()===0) return fail("Adrian 周日不开放，请选择周一至周六。");
   if(!(end>start)) return fail("结束时间需晚于开始时间。");
@@ -523,7 +538,7 @@ document.getElementById("addForm").addEventListener("submit", async e=>{
   const clashes=findConflicts(cand);
   if(clashes.length){
     const lines=clashes.slice(0,3).map(c=>
-      "· "+(c.blocked?"Adrian 屏蔽时段":c.student)+"（"+(c.recurring?("每"+DAY_NAMES[c.day]):c.date)+" "+fmtMin(c.start)+"–"+fmtMin(c.end)+"）");
+      "· "+(blockKind(c)?blockLabel(c):c.student)+"（"+(c.recurring?("每"+DAY_NAMES[c.day]):c.date)+" "+fmtMin(c.start)+"–"+fmtMin(c.end)+"）");
     return fail("该时段已被占用，无法加课：\n"+lines.join("\n"));
   }
 
@@ -531,7 +546,7 @@ document.getElementById("addForm").addEventListener("submit", async e=>{
   const row={
     student, manager, programme, subject,
     start_min:start, end_min:end, recurring:fixed,
-    blocked: editingOriginal ? !!editingOriginal.blocked : false,
+    blocked: isBlockType,
     day:wd
   };
   if(fixed){ row.start_date=dateStr; row.date=null; } else { row.date=dateStr; row.start_date=null; }
@@ -547,7 +562,8 @@ document.getElementById("addForm").addEventListener("submit", async e=>{
       await client.from("managers").insert({name:manager});
     }
     addOverlay.hidden=true;
-    toast(editingId ? "已保存修改" : (fixed ? "已加课（固排，每"+DAY_NAMES[wd]+" "+fmtMin(start)+"–"+fmtMin(end)+"）" : "已加课："+dateStr+" "+fmtMin(start)+"–"+fmtMin(end)));
+    const what = programme==="休假" ? "休假" : programme==="屏蔽" ? "屏蔽时段" : "课";
+    toast(editingId ? "已保存修改" : (fixed ? "已添加"+what+"（固排，每"+DAY_NAMES[wd]+" "+fmtMin(start)+"–"+fmtMin(end)+"）" : "已添加"+what+"："+dateStr+" "+fmtMin(start)+"–"+fmtMin(end)));
     editingId=null; editingOriginal=null;
     await refetchAll();
   }catch(ex){
@@ -563,20 +579,23 @@ function openDetail(id){
   const delBtn=document.getElementById("delBtn");
   delBtn.textContent="删除此课"; delBtn.classList.remove("confirm");
   document.getElementById("d-err").hidden=true;
-  document.getElementById("d-title").textContent = l.blocked ? "Adrian 屏蔽时段" : "课程详情";
+  const bk = blockKind(l);
+  document.getElementById("d-title").textContent = bk ? blockLabel(l) : "课程详情";
   const rows=[];
-  if(!l.blocked){
+  if(!bk){
     rows.push(["学生",esc(l.student)]);
     rows.push(["学管",esc(l.manager||"—")]);
     rows.push(["项目",`<span class="pill" style="background:var(--${l.programme==="紫荆"?"zj":l.programme==="扬帆"?"yf":"ys"})">${esc(l.programme)}</span>`]);
     if(l.subject) rows.push(["科目",esc(l.subject)]);
+  }else if(l.manager && l.manager!=="Adrian"){
+    rows.push(["添加人",esc(l.manager)]);
   }
   rows.push(["时间", l.recurring
       ? `每${DAY_NAMES[l.day]} ${fmtMin(l.start)}–${fmtMin(l.end)} <span class="pill" style="background:var(--accent);color:var(--accent-ink)">固排</span>`
       : `${esc(l.date)}（${DAY_NAMES[l.day??weekdayIdx(l.date)]}） ${fmtMin(l.start)}–${fmtMin(l.end)}`]);
   if(l.recurring && l.startDate) rows.push(["生效日", esc(l.startDate)+" 起"]);
   document.getElementById("d-body").innerHTML=rows.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join("");
-  document.getElementById("editBtn").hidden = !!l.blocked;   // blocked slots: delete only
+  document.getElementById("editBtn").hidden = false;   // everything is editable, 屏蔽/休假 included
   detailOverlay.hidden=false;
 }
 document.getElementById("editBtn").addEventListener("click",()=>{
@@ -640,7 +659,9 @@ if(SUPABASE_URL.startsWith("PASTE") || SUPABASE_ANON_KEY.startsWith("PASTE")){
   document.getElementById("loadNote").hidden=true;
   showBanner("⚠️ 网站尚未配置：请在 <b>index.html</b> 顶部的 CONFIG 区填入你的 Supabase URL 和 anon key（详见 README）。");
 }else{
-  client = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  // forgive common paste mistakes: trailing slash or an accidental /rest/v1 suffix
+  const cleanUrl = SUPABASE_URL.trim().replace(/\/(rest|auth|storage|realtime)\/v1\/?$/,"").replace(/\/+$/,"");
+  client = window.supabase.createClient(cleanUrl, SUPABASE_ANON_KEY.trim());
   refetchAll();
   // instant sync when another 学管 adds/deletes (needs Realtime on `lessons`; setup.sql enables it)
   try{
