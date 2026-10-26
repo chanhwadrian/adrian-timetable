@@ -17,8 +17,12 @@ create table if not exists lessons (
   recurring  boolean not null default false,  -- 固排
   blocked    boolean not null default false,  -- Adrian 屏蔽时段
   start_date date,                   -- recurring: effective from this date
+  skips      jsonb not null default '[]'::jsonb,  -- recurring: dates cancelled for that single week
   created_at timestamptz not null default now()
 );
+
+-- upgrade path for databases created before the skips column existed (safe to re-run)
+alter table lessons add column if not exists skips jsonb not null default '[]'::jsonb;
 
 create table if not exists managers (
   id       uuid primary key default gen_random_uuid(),

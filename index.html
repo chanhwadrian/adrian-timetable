@@ -231,6 +231,7 @@ input:focus,select:focus{outline:2px solid var(--accent); outline-offset:-1px}
     <div class="actions">
       <button type="button" class="btn" id="closeDetail">关闭</button>
       <button type="button" class="btn-primary" id="editBtn">编辑</button>
+      <button type="button" class="btn-danger" id="skipBtn">仅删本次</button>
       <button type="button" class="btn-danger" id="delBtn">删除此课</button>
     </div>
   </div>
@@ -247,8 +248,8 @@ input:focus,select:focus{outline:2px solid var(--accent); outline-offset:-1px}
      · Project URL      → SUPABASE_URL
      · anon public key  → SUPABASE_ANON_KEY
    ========================================================= */
-const SUPABASE_URL      = "https://rsludherwhwcolatcifx.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_VqPHyzDpo5kSFUs9vo1Quw_n6Cn6Cn6";
+const SUPABASE_URL      = "PASTE_YOUR_SUPABASE_URL_HERE";
+const SUPABASE_ANON_KEY = "PASTE_YOUR_SUPABASE_ANON_KEY_HERE";
 
 /* ================= constants ================= */
 const DAY_NAMES = ["周一","周二","周三","周四","周五","周六"];
@@ -263,6 +264,7 @@ let lessons = [];
 let dbManagers = [];
 let weekStart = mondayOf(new Date());
 let pendingDelete = null, deleteArmed = false;
+let pendingDate = null, skipArmed = false;      // the specific date of the clicked occurrence
 let editingId = null, editingOriginal = null;   // when set, the form saves changes to this lesson
 
 /* ================= helpers ================= */
@@ -291,6 +293,7 @@ function blockKind(l){                        // "" | "屏蔽" | "休假"
 function blockLabel(l){ return blockKind(l)==="休假" ? "休假" : "Adrian 屏蔽时段"; }
 function overlap(a1,a2,b1,b2){ return a1<b2 && b1<a2; }
 function weekdayIdx(dateStr){ return (fromIso(dateStr).getDay()+6)%7; }
+function mdIso(s){ const d=fromIso(s); return (d.getMonth()+1)+"月"+d.getDate()+"日"; }
 function esc(s){ return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function toast(msg){
   const t=document.getElementById("toast");
@@ -358,7 +361,7 @@ function buildGridFrame(){
 
 function lessonsForDay(d, dateStr){
   return lessons.filter(l=>{
-    if(l.recurring) return l.day===d && (!l.startDate || dateStr>=l.startDate);
+    if(l.recurring) return l.day===d && (!l.startDate || dateStr>=l.startDate) && !((l.skips||[]).includes(dateStr));
     return l.date===dateStr;
   });
 }
@@ -403,7 +406,7 @@ function renderLessons(){
           (it.recurring?`<span class="tag">固排</span>`:"");
       }
       el.title=(blockKind(it)?blockLabel(it):it.student)+" "+fmtMin(it.start)+"–"+fmtMin(it.end);
-      el.addEventListener("click",()=>openDetail(it.id));
+      el.addEventListener("click",()=>openDetail(it.id, dateStr));
       col.appendChild(el);
     }
   });
@@ -496,7 +499,7 @@ function findConflicts(cand){
     }else if(cand.recurring && !l.recurring){
       clash = weekdayIdx(l.date)===cand.day && l.date>=cand.startDate;
     }else if(!cand.recurring && l.recurring){
-      clash = l.day===weekdayIdx(cand.date) && (!l.startDate || cand.date>=l.startDate);
+      clash = l.day===weekdayIdx(cand.date) && (!l.startDate || cand.date>=l.startDate) && !((l.skips||[]).includes(cand.date));
     }else{
       clash = l.date===cand.date;
     }
@@ -573,11 +576,17 @@ document.getElementById("addForm").addEventListener("submit", async e=>{
 
 /* ================= detail / delete ================= */
 const detailOverlay=document.getElementById("detailOverlay");
-function openDetail(id){
+function openDetail(id, dateStr){
   const l=lessons.find(x=>x.id===id); if(!l) return;
   pendingDelete=l; deleteArmed=false;
+  pendingDate=dateStr||null; skipArmed=false;
   const delBtn=document.getElementById("delBtn");
-  delBtn.textContent="删除此课"; delBtn.classList.remove("confirm");
+  delBtn.textContent = l.recurring ? "删除整个固排" : "删除此课";
+  delBtn.classList.remove("confirm");
+  const skipBtn=document.getElementById("skipBtn");
+  skipBtn.hidden = !(l.recurring && pendingDate);
+  skipBtn.classList.remove("confirm");
+  if(!skipBtn.hidden) skipBtn.textContent = "仅删本次（"+mdIso(pendingDate)+"）";
   document.getElementById("d-err").hidden=true;
   const bk = blockKind(l);
   document.getElementById("d-title").textContent = bk ? blockLabel(l) : "课程详情";
@@ -594,6 +603,7 @@ function openDetail(id){
       ? `每${DAY_NAMES[l.day]} ${fmtMin(l.start)}–${fmtMin(l.end)} <span class="pill" style="background:var(--accent);color:var(--accent-ink)">固排</span>`
       : `${esc(l.date)}（${DAY_NAMES[l.day??weekdayIdx(l.date)]}） ${fmtMin(l.start)}–${fmtMin(l.end)}`]);
   if(l.recurring && l.startDate) rows.push(["生效日", esc(l.startDate)+" 起"]);
+  if(l.recurring && (l.skips||[]).length) rows.push(["已跳过", (l.skips||[]).slice().sort().map(s=>esc(mdIso(s))).join("、")]);
   document.getElementById("d-body").innerHTML=rows.map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join("");
   document.getElementById("editBtn").hidden = false;   // everything is editable, 屏蔽/休假 included
   detailOverlay.hidden=false;
@@ -602,6 +612,30 @@ document.getElementById("editBtn").addEventListener("click",()=>{
   if(!pendingDelete) return;
   detailOverlay.hidden=true;
   openAdd(null, null, null, pendingDelete);
+});
+document.getElementById("skipBtn").addEventListener("click", async ()=>{
+  const l=pendingDelete;
+  if(!l || !client || !pendingDate || !l.recurring) return;
+  const btn=document.getElementById("skipBtn");
+  if(!skipArmed){
+    skipArmed=true; btn.classList.add("confirm");
+    btn.textContent="确认仅删 "+mdIso(pendingDate)+" 这一次？";
+    return;
+  }
+  btn.disabled=true;
+  try{
+    const skips=[...(l.skips||[])];
+    if(!skips.includes(pendingDate)) skips.push(pendingDate);
+    const r=await client.from("lessons").update({skips}).eq("id", l.id);
+    if(r.error) throw r.error;
+    detailOverlay.hidden=true;
+    toast("已删除 "+mdIso(pendingDate)+" 这一次，其余周的固排不变");
+    await refetchAll();
+  }catch(ex){
+    const e2=document.getElementById("d-err");
+    e2.textContent="操作失败，请稍后再试。"+(ex&&ex.message?"（"+ex.message+"）":"");
+    e2.hidden=false;
+  }finally{ btn.disabled=false; }
 });
 document.getElementById("closeDetail").addEventListener("click",()=>detailOverlay.hidden=true);
 detailOverlay.addEventListener("click",e=>{ if(e.target===detailOverlay) detailOverlay.hidden=true; });
@@ -632,7 +666,8 @@ function mapRow(r){
     id:r.id, student:r.student, manager:r.manager, programme:r.programme,
     subject:r.subject, day:r.day, date:r.date,
     start:r.start_min, end:r.end_min,
-    recurring:r.recurring, blocked:r.blocked, startDate:r.start_date
+    recurring:r.recurring, blocked:r.blocked, startDate:r.start_date,
+    skips:r.skips||[]
   };
 }
 async function refetchAll(){
