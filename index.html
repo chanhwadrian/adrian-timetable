@@ -194,6 +194,11 @@ input:focus,select:focus{outline:2px solid var(--accent); outline-offset:-1px}
       <input type="date" id="f-date">
     </div>
 
+    <div class="field" id="dateEndField" hidden>
+      <label for="f-date-end">结束日期（选填：休假/屏蔽可跨多天，周日自动跳过）</label>
+      <input type="date" id="f-date-end">
+    </div>
+
     <div class="field">
       <label class="req" for="f-start">时间</label>
       <div class="timerow">
@@ -248,7 +253,7 @@ input:focus,select:focus{outline:2px solid var(--accent); outline-offset:-1px}
      · Project URL      → SUPABASE_URL
      · anon public key  → SUPABASE_ANON_KEY
    ========================================================= */
-const SUPABASE_URL      = "https://rsludherwhwcolatcifx.supabase.co/rest/v1/";
+const SUPABASE_URL      = "https://rsludherwhwcolatcifx.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_VqPHyzDpo5kSFUs9vo1Quw_n6Cn6Cn6";
 
 /* ================= constants ================= */
@@ -477,10 +482,17 @@ function openAdd(dateStr, start, end, lesson){
   document.getElementById("f-date").value = dateStr || iso(new Date());
   document.getElementById("f-start").value = start ?? 16*60;
   document.getElementById("f-end").value = end ?? 17*60;
+  document.getElementById("f-date-end").value = "";
+  updateDateEndVis();
   document.getElementById("formErr").hidden=true;
   addOverlay.hidden=false;
   document.getElementById("f-student").focus();
 }
+function updateDateEndVis(){
+  const v=(document.querySelector('#f-prog input:checked')||{}).value;
+  document.getElementById("dateEndField").hidden = !(v==="休假"||v==="屏蔽") || !!editingId;
+}
+document.querySelectorAll('#f-prog input').forEach(r=>r.addEventListener("change", updateDateEndVis));
 document.getElementById("addBtn").addEventListener("click",()=>openAdd(iso(new Date()),16*60,17*60));
 document.getElementById("cancelAdd").addEventListener("click",()=>addOverlay.hidden=true);
 addOverlay.addEventListener("click",e=>{ if(e.target===addOverlay) addOverlay.hidden=true; });
@@ -489,23 +501,25 @@ document.addEventListener("keydown",e=>{
 });
 
 function findConflicts(cand){
-  const out=[];
+  // hard: refuses the booking. skippable: a one-off entry (休假/屏蔽/单次课) on a future
+  // matching date — the new 固排 is created anyway and auto-skips just those weeks.
+  const hard=[], skippable=[];
+  const todayStr = iso(new Date());
   for(const l of lessons){
     if(editingId && l.id===editingId) continue;   // don't clash with the lesson being edited
     if(!overlap(cand.start,cand.end,l.start,l.end)) continue;
-    let clash=false;
     if(cand.recurring && l.recurring){
-      clash = l.day===cand.day;
+      if(l.day===cand.day) hard.push(l);
     }else if(cand.recurring && !l.recurring){
-      clash = weekdayIdx(l.date)===cand.day && l.date>=cand.startDate;
+      if(weekdayIdx(l.date)===cand.day && l.date>=cand.startDate && l.date>=todayStr) skippable.push(l);
+      // past one-off dates are history: never block a new 固排
     }else if(!cand.recurring && l.recurring){
-      clash = l.day===weekdayIdx(cand.date) && (!l.startDate || cand.date>=l.startDate) && !((l.skips||[]).includes(cand.date));
+      if(l.day===weekdayIdx(cand.date) && (!l.startDate || cand.date>=l.startDate) && !((l.skips||[]).includes(cand.date))) hard.push(l);
     }else{
-      clash = l.date===cand.date;
+      if(l.date===cand.date) hard.push(l);
     }
-    if(clash) out.push(l);
   }
-  return out;
+  return {hard, skippable};
 }
 
 document.getElementById("addForm").addEventListener("submit", async e=>{
@@ -537,36 +551,86 @@ document.getElementById("addForm").addEventListener("submit", async e=>{
   if(!(end>start)) return fail("结束时间需晚于开始时间。");
   const wd = weekdayIdx(dateStr);
 
-  const cand={recurring:fixed, day:wd, date:dateStr, startDate:dateStr, start, end};
-  const clashes=findConflicts(cand);
-  if(clashes.length){
-    const lines=clashes.slice(0,3).map(c=>
+  // date range: 休假/屏蔽 may span several days
+  const dateEndStr = document.getElementById("f-date-end").value;
+  let dates=[dateStr];
+  if(isBlockType && !editingId && dateEndStr && dateEndStr!==dateStr){
+    if(dateEndStr<dateStr) return fail("结束日期需不早于开始日期。");
+    if(fixed) return fail("跨多天的休假/屏蔽不能勾选固排，请取消固排或改为单天。");
+    dates=[]; let d=fromIso(dateStr); const endD=fromIso(dateEndStr); let n=0;
+    while(d<=endD && n<62){ if(d.getDay()!==0) dates.push(iso(d)); d=addDays(d,1); n++; }
+    if(d<=endD) return fail("日期范围过长（最多约两个月），请分段添加。");
+    if(!dates.length) return fail("所选范围内只有周日，无可用日期。");
+  }
+
+  const hardFail=hard=>{
+    const lines=hard.slice(0,3).map(c=>
       "· "+(blockKind(c)?blockLabel(c):c.student)+"（"+(c.recurring?("每"+DAY_NAMES[c.day]):c.date)+" "+fmtMin(c.start)+"–"+fmtMin(c.end)+"）");
-    return fail("该时段已被占用，无法加课：\n"+lines.join("\n"));
+    fail("该时段已被占用，无法添加：\n"+lines.join("\n"));
+  };
+  let autoSkips=[];             // new 固排: dates it skips
+  const fixSkips=new Map();     // 休假/屏蔽: recurring lessons to skip on these dates (id -> {l, dates})
+  if(fixed){
+    const cand={recurring:true, day:wd, date:dateStr, startDate:dateStr, start, end};
+    const {hard, skippable}=findConflicts(cand);
+    if(hard.length) return hardFail(hard);
+    // a new 固排 skips the weeks already taken by one-off entries instead of being refused
+    autoSkips=[...new Set(skippable.map(c=>c.date))];
+  }else{
+    const hard=[];
+    for(const dstr of dates){
+      const wd2=weekdayIdx(dstr);
+      for(const l of lessons){
+        if(editingId && l.id===editingId) continue;
+        if(!overlap(start,end,l.start,l.end)) continue;
+        if(!l.recurring){
+          if(l.date===dstr) hard.push(l);
+        }else if(l.day===wd2 && (!l.startDate || dstr>=l.startDate) && !((l.skips||[]).includes(dstr))){
+          if(isBlockType){
+            // 休假/屏蔽 overrides weekly 固排: skip that occurrence instead of refusing
+            const e2=fixSkips.get(l.id)||{l, dates:[]};
+            e2.dates.push(dstr); fixSkips.set(l.id,e2);
+          }else hard.push(l);
+        }
+      }
+    }
+    if(hard.length) return hardFail(hard);
   }
 
   if(!client) return fail("网站尚未连接数据库（Supabase 未配置）。");
-  const row={
+  const mergedSkips=[...new Set([...(editingOriginal && editingOriginal.skips || []), ...autoSkips])];
+  const rowFor=d=>({
     student, manager, programme, subject,
     start_min:start, end_min:end, recurring:fixed,
     blocked: isBlockType,
-    day:wd
-  };
-  if(fixed){ row.start_date=dateStr; row.date=null; } else { row.date=dateStr; row.start_date=null; }
+    skips: fixed ? mergedSkips : [],
+    day: fixed ? wd : weekdayIdx(d),
+    date: fixed ? null : d,
+    start_date: fixed ? dateStr : null
+  });
 
   const btn=document.getElementById("submitAdd");
   btn.disabled=true;
   try{
     const r1 = editingId
-      ? await client.from("lessons").update(row).eq("id", editingId)
-      : await client.from("lessons").insert(row);
+      ? await client.from("lessons").update(rowFor(dateStr)).eq("id", editingId)
+      : await client.from("lessons").insert(dates.map(rowFor));
     if(r1.error) throw r1.error;
+    for(const {l, dates:ds} of fixSkips.values()){
+      const merged=[...new Set([...(l.skips||[]), ...ds])];
+      const r2=await client.from("lessons").update({skips:merged}).eq("id", l.id);
+      if(r2.error) throw r2.error;
+    }
     if(isNewManager && !allManagers().includes(manager)){
       await client.from("managers").insert({name:manager});
     }
     addOverlay.hidden=true;
     const what = programme==="休假" ? "休假" : programme==="屏蔽" ? "屏蔽时段" : "课";
-    toast(editingId ? "已保存修改" : (fixed ? "已添加"+what+"（固排，每"+DAY_NAMES[wd]+" "+fmtMin(start)+"–"+fmtMin(end)+"）" : "已添加"+what+"："+dateStr+" "+fmtMin(start)+"–"+fmtMin(end)));
+    const skipNote = autoSkips.length ? "；已自动跳过："+autoSkips.slice().sort().map(mdIso).join("、")
+                   : fixSkips.size    ? "；已为 "+fixSkips.size+" 个固排跳过相应课次" : "";
+    const when = dates.length>1 ? mdIso(dates[0])+" – "+mdIso(dates[dates.length-1])+"（共"+dates.length+"天）"
+                                : dateStr+" "+fmtMin(start)+"–"+fmtMin(end);
+    toast(editingId ? "已保存修改"+skipNote : (fixed ? "已添加"+what+"（固排，每"+DAY_NAMES[wd]+" "+fmtMin(start)+"–"+fmtMin(end)+"）"+skipNote : "已添加"+what+"："+when+skipNote));
     editingId=null; editingOriginal=null;
     await refetchAll();
   }catch(ex){
